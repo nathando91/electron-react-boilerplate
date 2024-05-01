@@ -100,57 +100,6 @@ const createWindow = async () => {
 
   const ses = mainWindow.webContents.session;
   ses.webRequest.onBeforeRequest((details, callback) => {
-    if (details.url.startsWith('wss://www.walletlink.org/rpc')) {
-      log.info('WebSocket Connection:', JSON.stringify({ details, callback }));
-      const socket = new WebSocket(details.url, {});
-      socket.onopen = () => {
-        socket.send(
-          JSON.stringify({
-            type: 'HostSession',
-            id: 1,
-            sessionId: 'c8da4ea353bf2342384f9d638c69b74d',
-            sessionKey:
-              'e9f510246b8e391f35951e553715dcef457fdb6a0f52b7ed57a13c298994fdd4',
-          }),
-        );
-        console.log('WebSocket Opened');
-      };
-
-      socket.onmessage = async (event) => {
-        const { type }: any = JSON.parse(String(event.data) || '{}');
-        if (type == 'OK') {
-          await socket.send(
-            JSON.stringify({
-              type: 'IsLinked',
-              id: 2,
-              sessionId: 'c8da4ea353bf2342384f9d638c69b74d',
-            }),
-          );
-
-          await socket.send(
-            JSON.stringify({
-              type: 'GetSessionConfig',
-              id: 3,
-              sessionId: 'c8da4ea353bf2342384f9d638c69b74d',
-            }),
-          );
-        }
-
-        if (type == 'GetSessionConfigOK' || event.data == 'h') {
-          await socket.send(JSON.stringify('h'));
-        }
-      };
-
-      socket.onclose = () => {
-        console.log('rpcWebSocket Closed');
-      };
-
-      socket.onerror = (err) => {
-        console.log('rpcWebSocket err', err);
-      };
-      // }
-    }
-
     if (details.url.startsWith('wss://api.fantasy.top/v1/graphql')) {
       const socketMain = new WebSocket('wss://api.fantasy.top/v1/graphql', [
         'graphql-ws',
@@ -172,14 +121,33 @@ const createWindow = async () => {
       };
 
       socketMain.onmessage = (event) => {
-        console.log('Message from server:', event.data);
         const { type }: any = JSON.parse(String(event.data) || '{}');
-        console.log('Message from server  typetype:', type);
+        if (type == 'connection_ack') {
+          socketMain.send(
+            JSON.stringify({
+              id: '2c3bcd7b-f68b-4843-9224-aee466be3c5f',
+              type: 'subscribe',
+              payload: {
+                variables: { initialValue: '1970-01-01T00:00:00Z' },
+                extensions: {},
+                operationName: 'LATEST_UNIQUE_SELL_ORDERS',
+                query:
+                  'subscription LATEST_UNIQUE_SELL_ORDERS($initialValue: timestamptz = "1970-01-01T00:00:00Z") {\n unique_sell_orders_stream(\n cursor: {initial_value: {updated_at: $initialValue}, ordering: ASC}\n batch_size: 200\n ) {\n hero_id\n lowest_price\n order_count\n sell_order_id\n hero_rarity_index\n gliding_score\n updated_at\n hero {\n id\n followers_count\n handle\n name\n stars\n current_score {\n current_rank\n views\n fantasy_score\n __typename\n }\n __typename\n }\n __typename\n }\n}',
+              },
+            }),
+          );
+        }
 
         if (type == 'ping') {
           socketMain.send(
             JSON.stringify({ type: 'pong', payload: { message: 'keepalive' } }),
           );
+        }
+
+        if (type === 'data') {
+          console.log('Received data:', event.data);
+
+          return;
         }
       };
 
