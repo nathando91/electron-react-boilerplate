@@ -9,11 +9,11 @@
  * `./src/main.js` using webpack. This gives us some performance wins.
  */
 import path from 'path';
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserWindow, shell, ipcMain, netLog } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 import MenuBuilder from './menu';
-import { resolveHtmlPath } from './util';
+import WebSocket from 'ws';
 
 class AppUpdater {
   constructor() {
@@ -71,8 +71,6 @@ const createWindow = async () => {
 
   mainWindow = new BrowserWindow({
     show: false,
-    width: 1024,
-    height: 728,
     icon: getAssetPath('icon.png'),
     webPreferences: {
       preload: app.isPackaged
@@ -81,7 +79,10 @@ const createWindow = async () => {
     },
   });
 
-  mainWindow.loadURL(resolveHtmlPath('index.html'));
+  mainWindow.maximize();
+
+  // mainWindow.loadURL(resolveHtmlPath('index.html'));
+  mainWindow.loadURL('https://www.fantasy.top/marketplace');
 
   mainWindow.on('ready-to-show', () => {
     if (!mainWindow) {
@@ -91,6 +92,112 @@ const createWindow = async () => {
       mainWindow.minimize();
     } else {
       mainWindow.show();
+    }
+  });
+
+  // Open DevTools for debugging (optional)
+  mainWindow.webContents.openDevTools();
+
+  const ses = mainWindow.webContents.session;
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    if (details.url.startsWith('wss://www.walletlink.org/rpc')) {
+      log.info('WebSocket Connection:', JSON.stringify({ details, callback }));
+      const socket = new WebSocket(details.url, {});
+      socket.onopen = () => {
+        socket.send(
+          JSON.stringify({
+            type: 'HostSession',
+            id: 1,
+            sessionId: 'c8da4ea353bf2342384f9d638c69b74d',
+            sessionKey:
+              'e9f510246b8e391f35951e553715dcef457fdb6a0f52b7ed57a13c298994fdd4',
+          }),
+        );
+        console.log('WebSocket Opened');
+      };
+
+      socket.onmessage = async (event) => {
+        const { type }: any = JSON.parse(String(event.data) || '{}');
+        if (type == 'OK') {
+          await socket.send(
+            JSON.stringify({
+              type: 'IsLinked',
+              id: 2,
+              sessionId: 'c8da4ea353bf2342384f9d638c69b74d',
+            }),
+          );
+
+          await socket.send(
+            JSON.stringify({
+              type: 'GetSessionConfig',
+              id: 3,
+              sessionId: 'c8da4ea353bf2342384f9d638c69b74d',
+            }),
+          );
+        }
+
+        if (type == 'GetSessionConfigOK' || event.data == 'h') {
+          await socket.send(JSON.stringify('h'));
+        }
+      };
+
+      socket.onclose = () => {
+        console.log('rpcWebSocket Closed');
+      };
+
+      socket.onerror = (err) => {
+        console.log('rpcWebSocket err', err);
+      };
+      // }
+    }
+
+    if (details.url.startsWith('wss://api.fantasy.top/v1/graphql')) {
+      const socketMain = new WebSocket('wss://api.fantasy.top/v1/graphql', [
+        'graphql-ws',
+      ]);
+      socketMain.onopen = () => {
+        socketMain.send(
+          JSON.stringify({
+            type: 'connection_init',
+            payload: {
+              headers: {
+                Authorization:
+                  'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIweDM0RjM5QzM5NjZCZThjQ0Q2ODgwMjkxZDBBM2UwNUEwNjhhQ2VBMjMiLCJpYXQiOjE3MTQ1ODk0OTcsImV4cCI6MTcxNDYzMjY5NywiaHR0cHM6Ly9oYXN1cmEuaW8vand0L2NsYWltcyI6eyJ4LWhhc3VyYS1hbGxvd2VkLXJvbGVzIjpbInVzZXIiXSwieC1oYXN1cmEtZGVmYXVsdC1yb2xlIjoidXNlciIsIngtaGFzdXJhLXJvbGUiOiJ1c2VyIiwieC1oYXN1cmEtdXNlci1pZCI6IjB4MzRGMzlDMzk2NkJlOGNDRDY4ODAyOTFkMEEzZTA1QTA2OGFDZUEyMyJ9fQ.H89umUqkUNaZIO0dRR5KQ_5xNTHUjLVQsox-ow6GGlI',
+              },
+            },
+          }),
+        );
+
+        console.log('WebSocket Opened');
+      };
+
+      socketMain.onmessage = (event) => {
+        console.log('Message from server:', event.data);
+        const { type }: any = JSON.parse(String(event.data) || '{}');
+        console.log('Message from server  typetype:', type);
+
+        if (type == 'ping') {
+          socketMain.send(
+            JSON.stringify({ type: 'pong', payload: { message: 'keepalive' } }),
+          );
+        }
+      };
+
+      socketMain.onclose = () => {
+        console.log('WebSocket Closed');
+      };
+
+      socketMain.onerror = (err) => {
+        console.log('WebSocket err', err);
+      };
+      // }
+    }
+    callback({ cancel: false });
+  });
+
+  ses.webRequest.onCompleted((details) => {
+    if (details.url.startsWith('ws://') || details.url.startsWith('wss://')) {
+      // log.info('WebSocket Response:', details.webContents);
     }
   });
 
